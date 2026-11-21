@@ -18,10 +18,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout with submodules
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          submodules: recursive
+
+      - name: Init submodules with retry
+        run: |
+          for sub in $(git config --file .gitmodules --get-regexp path | awk '{print $2}'); do
+            ok=0
+            for i in 1 2 3 4 5; do
+              echo "Submodule $sub - tentativo $i/5"
+              if git submodule update --init --depth 1 "$sub"; then
+                ok=1
+                break
+              fi
+              sleep 5
+            done
+            if [ "$ok" -ne 1 ]; then
+              echo "Impossibile scaricare il submodule $sub dopo 5 tentativi"
+              exit 1
+            fi
+          done
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
