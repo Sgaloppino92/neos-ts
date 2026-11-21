@@ -20,24 +20,53 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: false
 
-      - name: Init submodules with retry
+      - name: Init submodules with retry (optional)
+        shell: bash
         run: |
-          for sub in $(git config --file .gitmodules --get-regexp path | awk '{print $2}'); do
+          git config --global http.version HTTP/1.1
+          mapfile -t submodules < <(
+            git config --file .gitmodules --get-regexp path |
+            awk '{print $2}'
+          )
+          initialized=()
+          skipped=()
+
+          for sub in "${submodules[@]}"; do
             ok=0
             for i in 1 2 3 4 5; do
-              echo "Submodule $sub - tentativo $i/5"
-              if git submodule update --init --depth 1 "$sub"; then
+              echo "Submodule $sub - attempt $i/5"
+              if git submodule update --init --depth 1 -- "$sub"; then
                 ok=1
                 break
               fi
+
+              git submodule deinit -f -- "$sub" || true
+              rm -rf -- "$sub" ".git/modules/$sub"
               sleep 5
             done
-            if [ "$ok" -ne 1 ]; then
-              echo "Impossibile scaricare il submodule $sub dopo 5 tentativi"
-              exit 1
+
+            if [ "$ok" -eq 1 ]; then
+              echo "Initialized submodule: $sub"
+              initialized+=("$sub")
+            else
+              echo "Skipped submodule after 5 failed attempts: $sub"
+              skipped+=("$sub")
             fi
           done
+
+          echo "Initialized submodules: ${initialized[*]:-none}"
+          echo "Skipped submodules: ${skipped[*]:-none}"
+
+          {
+            echo "### Git submodules"
+            echo ""
+            echo "**Initialized:** ${initialized[*]:-none}"
+            echo ""
+            echo "**Skipped after retries:** ${skipped[*]:-none}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
